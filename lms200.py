@@ -1,9 +1,10 @@
+import re
 import time
+import asyncio
 import multiprocessing
 from multiprocessing.managers import BaseManager
 
-from atlasbuggy.subscriptions import *
-from atlasbuggy import ThreadedStream
+from atlasbuggy import ThreadedStream, AsyncStream
 
 from sicktoolbox import SickLMS, units, bauds, measuring_modes
 
@@ -22,7 +23,7 @@ class LMS200(ThreadedStream):
         self.num_scans = 0
         self.update_rate_hz = 5.0
         self._sum_update_hz = 0.0
-        self.avg_update_hz = multiprocessing.Value('d')
+        self._avg_update_hz = multiprocessing.Value('d')
 
         self.operating_mode = None
         self.measuring_mode = None
@@ -50,6 +51,7 @@ class LMS200(ThreadedStream):
         self.logger.debug("Measuring units: %s" % self.measuring_units)
         self.logger.debug("Scan resolution: %s" % self.scan_resolution)
         self.logger.debug("Scan angle: %s" % self.scan_angle)
+        self.logger.debug("Update rate: %s" % self.update_rate_hz)
 
         self.max_distance = self.get_max_dist(self.measuring_mode)
         self.logger.debug("Max distance: %s" % self.max_distance)
@@ -65,6 +67,11 @@ class LMS200(ThreadedStream):
             return 32.0
         else:
             return 0.0
+
+    @property
+    def avg_update_hz(self):
+        with self._avg_update_hz.get_lock():
+            return self._avg_update_hz.value
 
     def start(self):
         self.initialize()
@@ -98,9 +105,9 @@ class LMS200(ThreadedStream):
                 t1 = time.time()
 
                 self._sum_update_hz += 1 / (t1 - t0)
-                with self.avg_update_hz.get_lock():
-                    self.avg_update_hz.value = self._sum_update_hz / self.num_scans
-                self.logger.debug("scan #%s @ %shz" % (self.num_scans, self.avg_update_hz.value))
+                with self._avg_update_hz.get_lock():
+                    self._avg_update_hz.value = self._sum_update_hz / self.num_scans
+                self.logger.debug("scan #%s @ %shz" % (self.num_scans, self._avg_update_hz.value))
 
         except BaseException as error:
             self.logger.debug("Catching exception in lms200 process")
@@ -117,3 +124,70 @@ class LMS200(ThreadedStream):
 
     def stop(self):
         self.process_exit_event.set()
+
+
+class LmsSimulator(AsyncStream):
+    def __init__(self, enabled=True, log_level=None):
+        super(LmsSimulator, self).__init__(enabled, log_level, LMS200.__name__)
+
+        self.session_baud = None
+
+        self.scan_resolution = 0.0
+        self.scan_angle = 0.0
+        self.measuring_units = None
+        self.max_distance = 0.0
+
+        self.num_scans = 0
+        self.update_rate_hz = 5.0
+        self.avg_update_hz = None
+
+        self.operating_mode = None
+        self.measuring_mode = None
+
+        self.scan = None
+
+    async def run(self):
+        while self.is_running():
+            if self.scan is not None:
+                await self.post((self.scan, self.num_scans))
+                self.scan = None
+            await asyncio.sleep(0.0)
+
+
+    def receive_log(self, log_level, message, line_info):
+        flag = "Selected baud: "
+        if message.startswith(flag):
+            self.session_baud = int(message[len(flag):])
+
+        flag = "Operating mode: "
+        if message.startswith(flag):
+            self.operating_mode = int(message[len(flag):])
+
+        flag = "Measuring mode: "
+        if message.startswith(flag):
+            self.measuring_mode = int(message[len(flag):])
+
+        flag = "Measuring units: "
+        if message.startswith(flag):
+            self.measuring_units = int(message[len(flag):])
+
+        flag = "Scan resolution: "
+        if message.startswith(flag):
+            self.scan_resolution = float(message[len(flag):])
+
+        flag = "Scan angle: "
+        if message.startswith(flag):
+            self.scan_angle = float(message[len(flag):])
+
+        flag = "Max distance: "
+        if message.startswith(flag):
+            self.max_distance = float(message[len(flag):])
+
+        flag = "scan: "
+        if message.startswith(flag):
+            self.scan = tuple(map(int, message[len(flag) + 1: -1].split(", ")))
+
+        match = re.match(r"scan #([0-9]*) @ ([0-9.-]*)hz", message)
+        if match is not None:
+            self.num_scans = int(match.group(1))
+            self.avg_update_hz = float(match.group(2))
