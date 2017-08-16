@@ -1,4 +1,0 @@
-/Users/Woz4tetra/Documents/Code/LMS200/sicktoolbox-python/tests/build/CMakeFiles/rebuild_cache.dir
-/Users/Woz4tetra/Documents/Code/LMS200/sicktoolbox-python/tests/build/CMakeFiles/edit_cache.dir
-/Users/Woz4tetra/Documents/Code/LMS200/sicktoolbox-python/tests/build/CMakeFiles/test.dir
-/Users/Woz4tetra/Documents/Code/LMS200/sicktoolbox-python/tests/build/CMakeFiles/sicktoolbox.dir
