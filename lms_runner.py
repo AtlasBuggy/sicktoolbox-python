@@ -23,9 +23,11 @@ if simulated:
 else:
     sicklms = LMS200("/dev/cu.usbserial")
 
-log_parser = LogParser("logs/2017_Aug_15/22;32;12.log.xz", enabled=simulated, update_rate=0.005)
+file_name = "2017_Aug_15/23;30;01.log.xz"
+# file_name = "2017_Aug_15/22;32;12.log.xz"
+log_parser = LogParser(file_name, "logs", enabled=simulated)
 
-slam = Slam(map_size_pixels, map_size_meters)
+slam = Slam(map_size_pixels, map_size_meters, write_image=True)
 plotter = LivePlotter(2, matplotlib_events=dict(key_press_event=key_press_fn))
 
 slam.subscribe(Feed(slam.lms_tag, sicklms))

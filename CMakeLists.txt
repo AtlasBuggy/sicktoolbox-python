@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 2.8.3)
 
-set(PYTHON_LIBRARY /usr/local/Cellar/python3/3.6.2/Frameworks/Python.framework/Versions/3.6/lib/libpython3.6.dylib)
-set(PYTHON_INCLUDE_DIR /usr/local/Cellar/python3/3.6.2/Frameworks/Python.framework/Versions/3.6/include/python3.6m/)
-set(PYTHON_EXECUTABLE /usr/local/bin/python3)
+# set(PYTHON_LIBRARY /usr/local/Cellar/python3/3.6.2/Frameworks/Python.framework/Versions/3.6/lib/libpython3.6.dylib)
+# set(PYTHON_INCLUDE_DIR /usr/local/Cellar/python3/3.6.2/Frameworks/Python.framework/Versions/3.6/include/python3.6m/)
+# set(PYTHON_EXECUTABLE /usr/local/bin/python3)
 
-FIND_PACKAGE(PythonInterp 3.6 REQUIRED)
-FIND_PACKAGE(PythonLibs 3.6 REQUIRED)
+FIND_PACKAGE(PythonInterp 3.5 REQUIRED)
+FIND_PACKAGE(PythonLibs 3.5 REQUIRED)
 
 # include(FindPythonLibs)
 

@@ -46,7 +46,7 @@ class Slam(ThreadedStream):
         self.slam_plot = RobotPlot("slam")
         self.trajectory_plot = RobotPlot("trajectory")
         self.full_slam_plot = RobotPlotCollection("full_plot", self.slam_plot, self.trajectory_plot,
-                                                  window_resizing=False, enabled=False)
+                                                  window_resizing=False, enabled=True)
 
         self.trajectory_arrow = None
 
