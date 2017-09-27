@@ -5,7 +5,7 @@ from atlasbuggy.plotters import LivePlotter
 from slam import Slam
 from lms200 import LMS200, LmsSimulator
 
-simulated = False
+simulated = True
 
 
 def key_press_fn(event):
@@ -23,11 +23,12 @@ if simulated:
 else:
     sicklms = LMS200("/dev/cu.usbserial")
 
-file_name = "2017_Aug_15/23;30;01.log.xz"
+file_name = "2017_Sep_27/18;13;53.log.xz"
+# file_name = "2017_Aug_15/23;30;01.log.xz"
 # file_name = "2017_Aug_15/22;32;12.log.xz"
 log_parser = LogParser(file_name, "logs", enabled=simulated)
 
-slam = Slam(map_size_pixels, map_size_meters, write_image=True, enabled=False)
+slam = Slam(map_size_pixels, map_size_meters, write_image=True, enabled=True)
 plotter = LivePlotter(2, matplotlib_events=dict(key_press_event=key_press_fn))
 
 slam.subscribe(Feed(slam.lms_tag, sicklms))
