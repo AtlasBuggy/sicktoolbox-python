@@ -1,5 +1,4 @@
 import math
-import time
 import numpy as np
 from PIL import Image
 import matplotlib.cm as colormap
@@ -204,21 +203,22 @@ class Slam(ThreadedStream):
         return x + dx, y + dy
 
     def make_image(self, image_name, image_format="pgm"):
-        self.algorithm.getmap(self.mapbytes)
-        for coords in self.trajectory:
-            x_mm, y_mm = coords
+        if self.algorithm is not None:
+            self.algorithm.getmap(self.mapbytes)
+            for coords in self.trajectory:
+                x_mm, y_mm = coords
 
-            x_pix = self.mm2pix(x_mm)
-            y_pix = self.mm2pix(y_mm)
+                x_pix = self.mm2pix(x_mm)
+                y_pix = self.mm2pix(y_mm)
 
-            self.mapbytes[y_pix * self.map_size_pixels + x_pix] = 0
+                self.mapbytes[y_pix * self.map_size_pixels + x_pix] = 0
 
-        if image_format == "pgm":
-            pgm_save(image_name + "." + image_format, self.mapbytes,
-                     (self.map_size_pixels, self.map_size_pixels))
-        else:
-            image = Image.frombuffer('L', (self.map_size_pixels, self.map_size_pixels), self.mapbytes, 'raw', 'L', 0, 1)
-            image.save(image_name + "." + image_format)
+            if image_format == "pgm":
+                pgm_save(image_name + "." + image_format, self.mapbytes,
+                         (self.map_size_pixels, self.map_size_pixels))
+            else:
+                image = Image.frombuffer('L', (self.map_size_pixels, self.map_size_pixels), self.mapbytes, 'raw', 'L', 0, 1)
+                image.save(image_name + "." + image_format)
 
     def get_pos(self):
         return self.algorithm.getpos()

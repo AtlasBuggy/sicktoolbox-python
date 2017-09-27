@@ -6,7 +6,7 @@ from multiprocessing.managers import BaseManager
 
 from atlasbuggy import ThreadedStream, AsyncStream
 
-from sicktoolbox import SickLMS, units, bauds, measuring_modes
+from sicktoolbox import SickLMS, units, bauds, measuring_modes, SickIOException
 
 
 class LMS200(ThreadedStream):
@@ -93,6 +93,11 @@ class LMS200(ThreadedStream):
             raise ValueError("Invalid baud: %s" % self.session_baud)
 
         self.lms.initialize(baud)
+
+        # try:
+        # except SickIOException as error:
+        #     self.logger.exception(error)
+        #     print("something")
         self.get_config()
 
     def process_fn(self, lms):

@@ -6,7 +6,7 @@ using namespace SickToolbox;
 unsigned int values[SickLMS::SICK_MAX_NUM_MEASUREMENTS] = {0};
 unsigned int num_values = 0;
 
-boost::python::tuple GetScan(SickLMS *sick_lms) {
+tuple GetScan(SickLMS *sick_lms) {
     sick_lms->GetSickScan(values, num_values);
 
     list values_list;
@@ -15,6 +15,15 @@ boost::python::tuple GetScan(SickLMS *sick_lms) {
     }
     return tuple(values_list);
 }
+
+//PyObject *sickIOExceptionType = NULL;
+//
+//void translateSickIOException(SickIOException const &e)
+//{
+//    assert(sickIOExceptionType != NULL);
+//    object pythonExceptionInstance(e);
+//    PyErr_SetObject(sickIOExceptionType, pythonExceptionInstance.ptr());
+//}
 
 BOOST_PYTHON_MODULE(sicktoolbox)
 {
@@ -89,6 +98,10 @@ BOOST_PYTHON_MODULE(sicktoolbox)
         .add_property("address", &SickLMS::sick_lms_operating_status_t::sick_address)
         .add_property("variant", &SickLMS::sick_lms_operating_status_t::sick_variant)
     ;
+
+//    class_<SickIOException>SickIOExceptionClass("SickIOException");
+//    sickIOExceptionType = SickIOExceptionClass.ptr();
+//    register_exception_translator<SickIOException>(&translateSickIOException);
 
     class_<SickIOException>("SickIOException");
     class_<SickTimeoutException>("SickTimeoutException");
