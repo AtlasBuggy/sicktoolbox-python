@@ -9,7 +9,7 @@ from atlasbuggy import ThreadedStream
 from atlasbuggy.subscriptions import *
 from atlasbuggy.plotters import RobotPlot, RobotPlotCollection
 
-from sicktoolbox import units
+from .sicktoolbox import units
 
 
 class Slam(ThreadedStream):
@@ -18,7 +18,8 @@ class Slam(ThreadedStream):
     slam algorithms that is used.
     """
 
-    def __init__(self, map_size_pixels, map_size_meters, enabled=True, log_level=None, write_image=False):
+    def __init__(self, map_size_pixels, map_size_meters, enabled=True, log_level=None, write_image=False,
+                 plot_slam=True, perform_slam=True):
         super(Slam, self).__init__(enabled, log_level)
 
         self.angles = None
@@ -41,11 +42,12 @@ class Slam(ThreadedStream):
 
         self.laser = None
         self.algorithm = None
+        self.enable_slam = perform_slam
 
         self.slam_plot = RobotPlot("slam")
         self.trajectory_plot = RobotPlot("trajectory")
         self.full_slam_plot = RobotPlotCollection("full_plot", self.slam_plot, self.trajectory_plot,
-                                                  window_resizing=False, enabled=True)
+                                                  window_resizing=False, enabled=plot_slam)
 
         self.trajectory_arrow = None
 
@@ -133,14 +135,15 @@ class Slam(ThreadedStream):
                     if self.is_subscribed(self.plotter_tag):
                         self.point_cloud_plot.update(point_cloud[:, 0], point_cloud[:, 1])
 
-                    if self.is_subscribed(self.odometry_tag):
-                        velocities = self.odometry.get_velocities()
-                    else:
-                        current_time = self.dt()
-                        velocities = [0, 0, current_time - self.prev_t]
-                        self.prev_t = current_time
+                    if self.enable_slam:
+                        if self.is_subscribed(self.odometry_tag):
+                            velocities = self.odometry.get_velocities()
+                        else:
+                            current_time = self.dt()
+                            velocities = [0, 0, current_time - self.prev_t]
+                            self.prev_t = current_time
 
-                    self.slam(distances.tolist(), velocities)
+                        self.slam(distances.tolist(), velocities)
 
                     self.lms_feed.task_done()
 

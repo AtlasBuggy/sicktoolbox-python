@@ -3,5 +3,5 @@
 cd build
 cmake ..
 make
-cp sicktoolbox.so ..
+cp sicktoolbox.so ../lms200
 cd ..

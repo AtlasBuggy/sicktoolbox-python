@@ -6,7 +6,7 @@ from multiprocessing.managers import BaseManager
 
 from atlasbuggy import ThreadedStream, AsyncStream
 
-from sicktoolbox import SickLMS, units, bauds, measuring_modes, SickIOException
+from .sicktoolbox import SickLMS, units, bauds, measuring_modes, SickIOException
 
 
 class LMS200(ThreadedStream):

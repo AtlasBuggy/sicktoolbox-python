@@ -2,7 +2,7 @@ from atlasbuggy import Robot, LogParser
 from atlasbuggy.subscriptions import *
 from atlasbuggy.plotters import LivePlotter
 
-from slam import Slam
+from lms200 import Slam
 from lms200 import LMS200, LmsSimulator
 
 simulated = True
@@ -21,7 +21,7 @@ map_size_meters = 50
 if simulated:
     sicklms = LmsSimulator()
 else:
-    sicklms = LMS200("/dev/cu.usbserial")
+    sicklms = LMS200("/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0")
 
 file_name = "2017_Sep_27/18;13;53.log.xz"
 # file_name = "2017_Aug_15/23;30;01.log.xz"
