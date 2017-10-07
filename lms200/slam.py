@@ -1,3 +1,4 @@
+import os
 import math
 import numpy as np
 from PIL import Image
@@ -231,7 +232,13 @@ class Slam(ThreadedStream):
 
     def stopped(self):
         if self.write_image:
-            self.make_image("maps/" + self._log_info["file_name"] + " map")
+            todays_folder = os.path.split(self._log_info["directory"])[-1]
+            directory = os.path.join("maps", todays_folder)
+            file_name = self._log_info["file_name"] + " map"
+            if not os.path.isdir(directory):
+                os.mkdir(directory)
+
+            self.make_image(os.path.join(directory, file_name))
 
 
 def pgm_load(filename):

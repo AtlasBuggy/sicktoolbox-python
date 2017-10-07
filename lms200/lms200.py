@@ -112,7 +112,7 @@ class LMS200(ThreadedStream):
                 self._sum_update_hz += 1 / (t1 - t0)
                 with self._avg_update_hz.get_lock():
                     self._avg_update_hz.value = self._sum_update_hz / self.num_scans
-                self.logger.debug("scan #%s @ %shz" % (self.num_scans, self._avg_update_hz.value))
+                self.logger.info("scan #%s @ %shz" % (self.num_scans, self._avg_update_hz.value))
 
         except BaseException as error:
             self.logger.debug("Catching exception in lms200 process")
