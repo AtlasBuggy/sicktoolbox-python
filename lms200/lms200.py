@@ -156,7 +156,7 @@ class LmsSimulator(AsyncStream):
             if self.scan is not None:
                 await self.post((self.scan, self.num_scans))
                 self.scan = None
-            await asyncio.sleep(0.0)
+            await asyncio.sleep(0.01)
 
 
     def receive_log(self, log_level, message, line_info):

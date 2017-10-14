@@ -13,6 +13,16 @@ from atlasbuggy.plotters import RobotPlot, RobotPlotCollection
 from .sicktoolbox import units
 
 
+class OdometryMessage:
+    def __init__(self, vx=0.0, vy=0.0, angular_v=0.0):
+        self.vx = vx
+        self.vy = vy
+        self.angular_v = angular_v
+
+    def __str__(self):
+        return "vx: %0.4f, vy: %0.4f, ang_v: %0.4f" % (self.vx, self.vy, self.angular_v)
+
+
 class Slam(ThreadedStream):
     """
     takes a breezyslam laser object and a flag to determine the
@@ -65,10 +75,9 @@ class Slam(ThreadedStream):
             required_attributes=("update_rate_hz", "scan_angle", "scan_resolution", "measuring_units", "max_distance")
         )
 
-        self.odometry_tag = None
-        self.odometry = None
-        self.require_subscription(self.odometry_tag, Subscription, is_suggestion=True,
-                                  required_methods=("get_velocities",))
+        self.odometry_tag = "odometry"
+        self.odometry_feed = None
+        self.require_subscription(self.odometry_tag, Update, is_suggestion=True, required_message_classes=OdometryMessage)
 
         self.map_service_tag = "map"
         self.add_service(self.map_service_tag, lambda data: data.copy())
@@ -106,7 +115,7 @@ class Slam(ThreadedStream):
                 self.slam_plot_axes.grid(False)
 
         if self.odometry_tag in subscriptions:
-            self.odometry = subscriptions[self.odometry_tag].get_stream()
+            self.odometry_feed = self.get_feed(self.odometry_tag)
 
     def start(self):
         self.make_angles()
@@ -121,6 +130,9 @@ class Slam(ThreadedStream):
             self.scan_size, self.scan_rate_hz,
             self.detection_angle_degrees, self.distance_no_detection_mm
         )
+        # if self.is_subscribed(self.odometry_tag):
+        #     self.algorithm = Deterministic_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
+        # else:
         self.algorithm = RMHC_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
 
     def run(self):
@@ -137,14 +149,24 @@ class Slam(ThreadedStream):
                         self.point_cloud_plot.update(point_cloud[:, 0], point_cloud[:, 1])
 
                     if self.enable_slam:
-                        if self.is_subscribed(self.odometry_tag):
-                            velocities = self.odometry.get_velocities()
-                        else:
-                            current_time = self.dt()
-                            velocities = [0, 0, current_time - self.prev_t]
-                            self.prev_t = current_time
+                        current_time = self.dt()
+                        delta_t = current_time - self.prev_t
+                        self.prev_t = current_time
 
-                        self.slam(distances.tolist(), velocities)
+                        if self.is_subscribed(self.odometry_tag):
+                            if not self.odometry_feed.empty():
+                                odometry_message = self.odometry_feed.get()
+                                delta_xy_mm = math.sqrt(odometry_message.vx ** 2 + odometry_message.vy ** 2) * 1000 * delta_t
+                                delta_theta_degrees = math.degrees(odometry_message.angular_v)
+                                velocities = [delta_xy_mm, delta_theta_degrees, delta_t]
+                            else:
+                                velocities = None
+
+                        else:
+                            velocities = [0, 0, delta_t]
+
+                        if velocities is not None:
+                            self.slam(distances.tolist(), velocities)
 
                     self.lms_feed.task_done()
 
@@ -221,7 +243,8 @@ class Slam(ThreadedStream):
                 pgm_save(image_name + "." + image_format, self.mapbytes,
                          (self.map_size_pixels, self.map_size_pixels))
             else:
-                image = Image.frombuffer('L', (self.map_size_pixels, self.map_size_pixels), self.mapbytes, 'raw', 'L', 0, 1)
+                image = Image.frombuffer('L', (self.map_size_pixels, self.map_size_pixels), self.mapbytes, 'raw', 'L',
+                                         0, 1)
                 image.save(image_name + "." + image_format)
 
     def get_pos(self):
@@ -236,7 +259,7 @@ class Slam(ThreadedStream):
             directory = os.path.join("maps", todays_folder)
             file_name = self._log_info["file_name"] + " map"
             if not os.path.isdir(directory):
-                os.mkdir(directory)
+                os.makedirs(directory)
 
             self.make_image(os.path.join(directory, file_name))
 

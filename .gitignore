@@ -102,16 +102,6 @@ Thumbs.db
 .idea/
 .pioenvs/
 .sconsign.dblite/
-Images
-Images/
-Videos
-Videos/
-videos
-videos/
-images
-images/
-depth_models/
-depth_models
 
 # ML files #
 ############
@@ -134,3 +124,8 @@ xcuserdata/
 ################
 .swp
 \#*
+
+# Large files #
+###############
+*.mp4
+*.avi

@@ -28,7 +28,7 @@ file_name = "2017_Sep_27/18;13;53.log.xz"
 # file_name = "2017_Aug_15/22;32;12.log.xz"
 log_parser = LogParser(file_name, "logs", enabled=simulated)
 
-slam = Slam(map_size_pixels, map_size_meters, write_image=True, enabled=True)
+slam = Slam(map_size_pixels, map_size_meters, write_image=False, enabled=True)
 plotter = LivePlotter(2, matplotlib_events=dict(key_press_event=key_press_fn))
 
 slam.subscribe(Feed(slam.lms_tag, sicklms))
