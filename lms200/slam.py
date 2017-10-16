@@ -205,7 +205,9 @@ class Slam(ThreadedStream):
 
         map_img = np.reshape(np.frombuffer(self.mapbytes, dtype=np.uint8),
                              (self.map_size_pixels, self.map_size_pixels))
-        self.plotter.draw_image(self.full_slam_plot, map_img, cmap=colormap.gray)
+
+        if self.is_subscribed(self.plotter_tag):
+            self.plotter.draw_image(self.full_slam_plot, map_img, cmap=colormap.gray)
 
         if self.trajectory_arrow is not None:
             self.trajectory_arrow.remove()
