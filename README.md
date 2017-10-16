@@ -1,5 +1,5 @@
 # Introduction
-sicktoolbox-python is an atlasbuggy wrapper for the sicktoolbox library. Using this library, you can interface with SICK LIDARs that can be interfaced with using
+sicktoolbox-python is an atlasbuggy wrapper for the sicktoolbox library. Using this library, you can interface with SICK LIDARs that can be interfaced with using the standard sicktoolbox library.
 
 # Setup
 
