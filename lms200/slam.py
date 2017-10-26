@@ -1,29 +1,20 @@
 import os
+import time
 import math
+import asyncio
 import numpy as np
 from PIL import Image
-import matplotlib.cm as colormap
 from breezyslam.components import Laser
 from breezyslam.algorithms import RMHC_SLAM, Deterministic_SLAM
 
-from atlasbuggy import ThreadedStream
-from atlasbuggy.subscriptions import *
-from atlasbuggy.plotters import RobotPlot, RobotPlotCollection
+from atlasbuggy import Node
+
+from .messages import LmsScan, OdometryMessage, PoseMessage
 
 from .sicktoolbox import units
 
 
-class OdometryMessage:
-    def __init__(self, vx=0.0, vy=0.0, angular_v=0.0):
-        self.vx = vx
-        self.vy = vy
-        self.angular_v = angular_v
-
-    def __str__(self):
-        return "vx: %0.4f, vy: %0.4f, ang_v: %0.4f" % (self.vx, self.vy, self.angular_v)
-
-
-class Slam(ThreadedStream):
+class Slam(Node):
     """
     takes a breezyslam laser object and a flag to determine the
     slam algorithms that is used.
@@ -35,8 +26,6 @@ class Slam(ThreadedStream):
 
         self.angles = None
         self.scan_size = 0
-
-        self.point_cloud_plot = RobotPlot("Point cloud", marker='.', linestyle='')
 
         self.scan_size = None
         self.scan_rate_hz = None
@@ -55,69 +44,37 @@ class Slam(ThreadedStream):
         self.algorithm = None
         self.enable_slam = perform_slam
 
-        self.slam_plot = RobotPlot("slam")
-        self.trajectory_plot = RobotPlot("trajectory")
-        self.full_slam_plot = RobotPlotCollection("full_plot", self.slam_plot, self.trajectory_plot,
-                                                  window_resizing=False, enabled=plot_slam)
-
         self.trajectory_arrow = None
 
-        self.plotter_tag = "plotter"
-        self.plotter = None
-        self.slam_plot_axes = None
-        self.require_subscription(self.plotter_tag, Subscription, is_suggestion=True)
-
         self.lms_tag = "lms"
-        self.lms_feed = None
+        self.lms_queue = None
         self.lms200 = None
-        self.require_subscription(
-            self.lms_tag, Feed,
+        self.lms200_sub = self.define_subscription(
+            self.lms_tag, message_type=LmsScan,
             required_attributes=("update_rate_hz", "scan_angle", "scan_resolution", "measuring_units", "max_distance")
         )
 
         self.odometry_tag = "odometry"
-        self.odometry_feed = None
-        self.require_subscription(self.odometry_tag, Update, is_suggestion=True, required_message_classes=OdometryMessage)
+        self.odometry_queue = None
+        self.odometry_sub = self.define_subscription(self.odometry_tag, is_required=False, message_type=OdometryMessage)
 
-        self.map_service_tag = "map"
-        self.add_service(self.map_service_tag, lambda data: data.copy())
-
-        self.prev_t = 0.0
+        self.prev_t = None
 
         self.write_image = write_image
 
-    def take(self, subscriptions):
-        self.lms200 = subscriptions[self.lms_tag].get_stream()
-        self.lms_feed = subscriptions[self.lms_tag].get_feed()
+        self.initialized = False
 
-        if self.plotter_tag in subscriptions:
-            self.plotter = subscriptions[self.plotter_tag].get_stream()
+    def take(self):
+        self.lms200 = self.lms200_sub.get_producer()
+        self.lms_queue = self.lms200_sub.get_queue()
 
-            self.plotter.add_plots(self.point_cloud_plot, self.full_slam_plot)
+        if self.is_subscribed(self.odometry_tag):
+            self.odometry_queue = self.odometry_sub.get_queue()
 
-            if self.full_slam_plot.enabled:
-                self.slam_plot_axes = self.plotter.get_axis(self.full_slam_plot)
-                self.slam_plot_axes.set_aspect("auto")
-                self.slam_plot_axes.set_autoscale_on(True)
-                self.slam_plot_axes.set_xlim([0, self.map_size_pixels])
-                self.slam_plot_axes.set_ylim([0, self.map_size_pixels])
-
-                ticks = np.arange(0, self.map_size_pixels + 100, 50)
-                labels = [str(self.map_scale * tick) for tick in ticks]
-                self.slam_plot_axes.xaxis.set_ticks(ticks)
-                self.slam_plot_axes.set_xticklabels(labels)
-                self.slam_plot_axes.yaxis.set_ticks(ticks)
-                self.slam_plot_axes.set_yticklabels(labels)
-
-                self.slam_plot_axes.set_xlabel('X (mm)')
-                self.slam_plot_axes.set_ylabel('Y (mm)')
-
-                self.slam_plot_axes.grid(False)
-
-        if self.odometry_tag in subscriptions:
-            self.odometry_feed = self.get_feed(self.odometry_tag)
-
-    def start(self):
+    def initialize(self):
+        if self.initialized:
+            return
+        self.initialized = True
         self.make_angles()
 
         self.scan_size = len(self.angles)
@@ -134,41 +91,43 @@ class Slam(ThreadedStream):
         #     self.algorithm = Deterministic_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
         # else:
         self.algorithm = RMHC_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
+        self.logger.info("SLAM initialized! %s" % self.laser)
 
-    def run(self):
-        while self.is_running():
-            if not self.lms_feed.empty():
-                while not self.lms_feed.empty():
-                    scan, scan_num = self.lms_feed.get()
-                    self.logger.debug("received scan #%s" % scan_num)
-                    distances = self.make_distances(scan)
+    async def loop(self):
+        pose_counter = 0
+        while True:
+            if not self.lms_queue.empty():
+                self.initialize()
+                while not self.lms_queue.empty():
+                    message = await self.lms_queue.get()
+                    # self.logger.info("received scan message: %s" % message)
+                    distances = self.make_distances(message.scan)
 
-                    point_cloud = self.make_point_cloud(distances)
-
-                    if self.is_subscribed(self.plotter_tag):
-                        self.point_cloud_plot.update(point_cloud[:, 0], point_cloud[:, 1])
+                    # point_cloud = self.make_point_cloud(distances)
 
                     if self.enable_slam:
-                        current_time = self.dt()
-                        delta_t = current_time - self.prev_t
-                        self.prev_t = current_time
-
                         if self.is_subscribed(self.odometry_tag):
-                            if not self.odometry_feed.empty():
-                                odometry_message = self.odometry_feed.get()
-                                delta_xy_mm = math.sqrt(odometry_message.vx ** 2 + odometry_message.vy ** 2) * 1000 * delta_t
-                                delta_theta_degrees = math.degrees(odometry_message.angular_v)
-                                velocities = [delta_xy_mm, delta_theta_degrees, delta_t]
+                            if not self.odometry_queue.empty():
+                                odometry_message = await self.odometry_queue.get()
+                                velocities = [odometry_message.delta_xy_mm, odometry_message.delta_theta_degrees,
+                                              odometry_message.delta_t]
                             else:
                                 velocities = None
 
                         else:
-                            velocities = [0, 0, delta_t]
+                            if self.prev_t is None:
+                                self.prev_t = message.timestamp
+                                continue
+                            velocities = [0, 0, message.timestamp - self.prev_t]
 
                         if velocities is not None:
-                            self.slam(distances.tolist(), velocities)
-
-                    self.lms_feed.task_done()
+                            x_mm, y_mm, theta_degrees = self.slam(distances.tolist(), velocities)
+                            pose_message = PoseMessage(time.time(), pose_counter, x_mm, y_mm, theta_degrees)
+                            self.logger.info(pose_message)
+                            await self.broadcast(pose_message)
+                            pose_counter += 1
+            else:
+                await asyncio.sleep(0.01)
 
     def make_angles(self):
         """Create angles list in the correct format and units (radians)"""
@@ -203,30 +162,10 @@ class Slam(ThreadedStream):
 
         self.algorithm.getmap(self.mapbytes)
 
-        map_img = np.reshape(np.frombuffer(self.mapbytes, dtype=np.uint8),
-                             (self.map_size_pixels, self.map_size_pixels))
-        self.plotter.draw_image(self.full_slam_plot, map_img, cmap=colormap.gray)
+        # map_img = np.reshape(np.frombuffer(self.mapbytes, dtype=np.uint8),
+        #                      (self.map_size_pixels, self.map_size_pixels))
 
-        if self.trajectory_arrow is not None:
-            self.trajectory_arrow.remove()
-        dx, dy = self.plt_rotate(0, 0, 0.1, theta_degrees)
-        if self.full_slam_plot.enabled:
-            self.trajectory_arrow = self.slam_plot_axes.arrow(
-                x_mm * self.map_scale, y_mm * self.map_scale, dx, dy, width=10
-            )
-            self.trajectory_plot.append(x_mm * self.map_scale, y_mm * self.map_scale)
-
-        self.post((x_mm * 0.001, y_mm * 0.001, math.radians(theta_degrees)))
-        self.post(map_img, self.map_service_tag)
-
-    @staticmethod
-    def plt_rotate(x, y, r, deg):
-        rad = math.radians(deg)
-        c = math.cos(rad)
-        s = math.sin(rad)
-        dx = r * c
-        dy = r * s
-        return x + dx, y + dy
+        return x_mm, y_mm, theta_degrees
 
     def make_image(self, image_name, image_format="pgm"):
         if self.algorithm is not None:
@@ -253,11 +192,11 @@ class Slam(ThreadedStream):
     def mm2pix(self, mm):
         return int(mm / (self.map_size_meters * 1000 / self.map_size_pixels))
 
-    def stopped(self):
+    async def teardown(self):
         if self.write_image:
-            todays_folder = os.path.split(self._log_info["directory"])[-1]
-            directory = os.path.join("maps", todays_folder)
-            file_name = self._log_info["file_name"] + " map"
+            todays_folder = self.directory.split(os.sep)[1:]
+            directory = os.path.join("maps", *todays_folder)
+            file_name = self.file_name + " map"
             if not os.path.isdir(directory):
                 os.makedirs(directory)
 

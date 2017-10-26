@@ -1,17 +1,17 @@
-import re
 import time
 import asyncio
 import multiprocessing
 from multiprocessing.managers import BaseManager
 
-from atlasbuggy import ThreadedStream, AsyncStream
+from atlasbuggy.device import Generic
 
 from .sicktoolbox import SickLMS, units, bauds, measuring_modes, SickIOException
+from .messages import LmsScan
 
 
-class LMS200(ThreadedStream):
-    def __init__(self, address, baud=38400, enabled=True, log_level=None):
-        super(LMS200, self).__init__(enabled, log_level)
+class LMS200(Generic):
+    def __init__(self, address, baud=38400, enabled=True):
+        super(LMS200, self).__init__(enabled)
 
         self.session_baud = baud
 
@@ -32,12 +32,6 @@ class LMS200(ThreadedStream):
         self.manager = BaseManager()
         self.manager.start()
         self.lms = self.manager.SickLMS(address)
-
-        self.process_exit_event = multiprocessing.Event()
-        self.initialized_event = multiprocessing.Event()
-        self.process = multiprocessing.Process(target=self.process_fn, args=(self.lms,))
-        self.process_queue = multiprocessing.Queue()
-        self.process_lock = multiprocessing.Lock()
 
     def get_config(self):
         self.operating_mode = self.lms.get_operating_mode()
@@ -73,9 +67,9 @@ class LMS200(ThreadedStream):
         with self._avg_update_hz.get_lock():
             return self._avg_update_hz.value
 
-    def start(self):
+    async def setup(self):
         self.initialize()
-        self.process.start()
+        self.device_process.start()
 
     def initialize(self):
         self.logger.debug("Selected baud: %s" % self.session_baud)
@@ -92,107 +86,44 @@ class LMS200(ThreadedStream):
         else:
             raise ValueError("Invalid baud: %s" % self.session_baud)
 
-        self.lms.initialize(baud)
+        try:
+            self.lms.initialize(baud)
+        except:
+            self.stop_device()
+            raise
 
-        # try:
-        # except SickIOException as error:
-        #     self.logger.exception(error)
-        #     print("something")
         self.get_config()
 
-    def process_fn(self, lms):
+    def poll_device(self):
+        self.logger.info("polling device")
         try:
-            while not self.process_exit_event.is_set():
+            while self.device_active():
                 t0 = time.time()
-                scan = lms.get_scan()
+                scan = self.lms.get_scan()
                 self.num_scans += 1
-                self.process_queue.put((scan, self.num_scans))
+                self.device_read_queue.put((t0, scan, self.num_scans))
                 t1 = time.time()
 
                 self._sum_update_hz += 1 / (t1 - t0)
                 with self._avg_update_hz.get_lock():
                     self._avg_update_hz.value = self._sum_update_hz / self.num_scans
-                self.logger.info("scan #%s @ %shz" % (self.num_scans, self._avg_update_hz.value))
 
         except BaseException as error:
             self.logger.debug("Catching exception in lms200 process")
             self.logger.exception(error)
         finally:
-            lms.uninitialize()
+            self.lms.uninitialize()
 
-    def run(self):
-        while self.is_running():
-            scan, scan_num = self.process_queue.get()
-            self.post((scan, scan_num))
-            self.logger.debug("posted scan #%s" % scan_num)
-            self.logger.debug("scan: %s" % str(scan))
+    async def loop(self):
+        while self.device_active():
+            if not self.empty():
+                timestamp, scan, scan_num = self.read()
 
-    def stop(self):
-        self.process_exit_event.set()
+                message = LmsScan(timestamp, scan_num, self.avg_update_hz, scan)
+                self.logger.info(message)
 
+                await self.broadcast(message)
+            else:
+                await asyncio.sleep(0.001)
+        self.logger.info("Device no longer active. Shutting down.")
 
-class LmsSimulator(AsyncStream):
-    def __init__(self, enabled=True, log_level=None):
-        super(LmsSimulator, self).__init__(enabled, log_level, LMS200.__name__)
-
-        self.session_baud = None
-
-        self.scan_resolution = 0.0
-        self.scan_angle = 0.0
-        self.measuring_units = None
-        self.max_distance = 0.0
-
-        self.num_scans = 0
-        self.update_rate_hz = 5.0
-        self.avg_update_hz = None
-
-        self.operating_mode = None
-        self.measuring_mode = None
-
-        self.scan = None
-
-    async def run(self):
-        while self.is_running():
-            if self.scan is not None:
-                await self.post((self.scan, self.num_scans))
-                self.scan = None
-            await asyncio.sleep(0.01)
-
-
-    def receive_log(self, log_level, message, line_info):
-        flag = "Selected baud: "
-        if message.startswith(flag):
-            self.session_baud = int(message[len(flag):])
-
-        flag = "Operating mode: "
-        if message.startswith(flag):
-            self.operating_mode = int(message[len(flag):])
-
-        flag = "Measuring mode: "
-        if message.startswith(flag):
-            self.measuring_mode = int(message[len(flag):])
-
-        flag = "Measuring units: "
-        if message.startswith(flag):
-            self.measuring_units = int(message[len(flag):])
-
-        flag = "Scan resolution: "
-        if message.startswith(flag):
-            self.scan_resolution = float(message[len(flag):])
-
-        flag = "Scan angle: "
-        if message.startswith(flag):
-            self.scan_angle = float(message[len(flag):])
-
-        flag = "Max distance: "
-        if message.startswith(flag):
-            self.max_distance = float(message[len(flag):])
-
-        flag = "scan: "
-        if message.startswith(flag):
-            self.scan = tuple(map(int, message[len(flag) + 1: -1].split(", ")))
-
-        match = re.match(r"scan #([0-9]*) @ ([0-9.-]*)hz", message)
-        if match is not None:
-            self.num_scans = int(match.group(1))
-            self.avg_update_hz = float(match.group(2))
