@@ -1,8 +1,9 @@
 import argparse
 
 from atlasbuggy import Orchestrator, run
+from atlasbuggy.plotters import LivePlotter
 
-from lms200 import Slam, LMS200, LmsPlayback
+from lms200 import Slam, LMS200, LmsPlayback, LMSPlotter
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--play", help="run in playback mode", action="store_true")
@@ -26,9 +27,14 @@ class PlaybackOrchestrator(Orchestrator):
         super(PlaybackOrchestrator, self).__init__(event_loop)
 
         sicklms = LmsPlayback(file_name, "converted")
-        self.add_nodes(sicklms, slam)
-        self.subscribe(sicklms, slam, slam.lms_tag)
+        plotter = LivePlotter(title="LMS200 Data")
+        lms_plotter = LMSPlotter()
 
+        self.add_nodes(sicklms, plotter, lms_plotter)
+
+        # self.subscribe(sicklms, slam, slam.lms_tag)
+        self.subscribe(plotter, lms_plotter, lms_plotter.plotter_tag)
+        self.subscribe(sicklms, lms_plotter, lms_plotter.lms_tag)
 
 class LiveOrchestrator(Orchestrator):
     def __init__(self, event_loop):
