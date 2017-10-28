@@ -109,11 +109,6 @@ class LMS200(Generic):
                 self._avg_update_hz.value = self._sum_update_hz / self.num_scans
 
     async def loop(self):
-        t0 = time.time()
-        prev_scan_num = 0
-        acquisition_rate = 3
-        start_time = time.time()
-
         self.device_process.start()
 
         while self.device_active():
@@ -122,13 +117,7 @@ class LMS200(Generic):
 
                 message = LmsScan(timestamp, scan_num, self.avg_update_hz, scan)
                 self.log_to_buffer(timestamp, message)
-
-                t1 = time.time()
-                if (t1 - t0) > acquisition_rate:
-                    self.logger.info("received %s scan in %s seconds. %s received in total (avg=%0.1f scans/sec)" % (
-                        scan_num - prev_scan_num, acquisition_rate, scan_num, scan_num / (t1 - start_time)
-                    ))
-                    t0 = time.time()
+                self.check_buffer(scan_num)
 
                 await self.broadcast(message)
             else:
