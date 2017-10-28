@@ -69,7 +69,6 @@ class LMS200(Generic):
 
     async def setup(self):
         self.initialize()
-        self.device_process.start()
         time.sleep(0.5)  # wait for device to warm up
 
     def initialize(self):
@@ -114,6 +113,8 @@ class LMS200(Generic):
         prev_scan_num = 0
         acquisition_rate = 3
         start_time = time.time()
+
+        self.device_process.start()
 
         while self.device_active():
             if not self.empty():
