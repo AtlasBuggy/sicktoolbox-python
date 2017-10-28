@@ -70,6 +70,7 @@ class LMS200(Generic):
     async def setup(self):
         self.initialize()
         self.device_process.start()
+        time.sleep(0.5)  # wait for device to warm up
 
     def initialize(self):
         self.logger.debug("Selected baud: %s" % self.session_baud)
@@ -96,34 +97,44 @@ class LMS200(Generic):
 
     def poll_device(self):
         self.logger.info("polling device")
-        try:
-            while self.device_active():
-                t0 = time.time()
-                scan = self.lms.get_scan()
-                self.num_scans += 1
-                self.device_read_queue.put((t0, scan, self.num_scans))
-                t1 = time.time()
 
-                self._sum_update_hz += 1 / (t1 - t0)
-                with self._avg_update_hz.get_lock():
-                    self._avg_update_hz.value = self._sum_update_hz / self.num_scans
+        while self.device_active():
+            t0 = time.time()
+            scan = self.lms.get_scan()
+            self.num_scans += 1
+            self.device_read_queue.put((t0, scan, self.num_scans))
+            t1 = time.time()
 
-        except BaseException as error:
-            self.logger.debug("Catching exception in lms200 process")
-            self.logger.exception(error)
-        finally:
-            self.lms.uninitialize()
+            self._sum_update_hz += 1 / (t1 - t0)
+            with self._avg_update_hz.get_lock():
+                self._avg_update_hz.value = self._sum_update_hz / self.num_scans
 
     async def loop(self):
+        t0 = time.time()
+        prev_scan_num = 0
+        acquisition_rate = 3
+        start_time = time.time()
+
         while self.device_active():
             if not self.empty():
                 timestamp, scan, scan_num = self.read()
 
                 message = LmsScan(timestamp, scan_num, self.avg_update_hz, scan)
-                self.logger.info(message)
+                self.log_to_buffer(timestamp, message)
+
+                t1 = time.time()
+                if (t1 - t0) > acquisition_rate:
+                    self.logger.info("received %s scan in %s seconds. %s received in total (avg=%0.1f scans/sec)" % (
+                        scan_num - prev_scan_num, acquisition_rate, scan_num, scan_num / (t1 - start_time)
+                    ))
+                    t0 = time.time()
 
                 await self.broadcast(message)
             else:
                 await asyncio.sleep(0.001)
         self.logger.info("Device no longer active. Shutting down.")
 
+    async def teardown(self):
+        self.device_exit_event.set()
+        await asyncio.sleep(0.01)  # wait for device to exit
+        self.lms.uninitialize()

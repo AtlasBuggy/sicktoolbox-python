@@ -236,7 +236,7 @@ def pgm_load(filename):
 
 
 def pgm_save(filename, imgbytes, imgsize):
-    print('\nSaving image to file %s' % filename)
+    print('\nSaving image to file %s...' % filename)
 
     output = open(filename, 'wt')
 
@@ -250,3 +250,4 @@ def pgm_save(filename, imgbytes, imgsize):
         output.write('\n')
 
     output.close()
+    print("done!")
