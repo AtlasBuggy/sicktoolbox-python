@@ -83,41 +83,51 @@ class Slam(Node):
             self.scan_size, self.scan_rate_hz,
             self.detection_angle_degrees, self.distance_no_detection_mm
         )
-        if self.is_subscribed(self.odometry_tag):
-            self.algorithm = Deterministic_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
-        else:
-            self.algorithm = RMHC_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
+        # if self.is_subscribed(self.odometry_tag):
+        #     self.algorithm = Deterministic_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
+        #     self.logger.info("Using deterministic SLAM. Odometry provided.")
+        # else:
+        self.algorithm = RMHC_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
+            # self.logger.warning("Using RMHC SLAM!! Odometry not provided.")
+
         self.logger.info("SLAM initialized! %s" % self.laser)
 
     async def loop(self):
         pose_counter = 0
         distances = None
-        velocities = None
+        velocities = [0, 0, 0]
+        current_time = 0
 
         while True:
             # print(self.lms_queue.empty(), self.odometry_queue.empty())
             if not self.lms_queue.empty():
                 self.initialize()
                 while not self.lms_queue.empty():
-                    message = await self.lms_queue.get()
-                    distances = self.make_distances(message.scan)
+                    scan_message = await self.lms_queue.get()
+                    distances = self.make_distances(scan_message.scan)
+
+                    current_time = scan_message.timestamp
+                self.log_to_buffer(time.time(), scan_message)
 
             if self.is_subscribed(self.odometry_tag):
-                while not self.odometry_queue.empty():
-                    odometry_message = await self.odometry_queue.get()
-                    velocities = [odometry_message.delta_xy_mm, odometry_message.delta_theta_degrees,
-                                      odometry_message.delta_t]
+                if not self.odometry_queue.empty():
+                    while not self.odometry_queue.empty():
+                        odometry_message = await self.odometry_queue.get()
+                        velocities = [odometry_message.delta_xy_mm, odometry_message.delta_theta_degrees,
+                                          odometry_message.delta_t]
+                    self.log_to_buffer(time.time(), odometry_message)
 
             else:
                 if self.prev_t is None:
-                    self.prev_t = message.timestamp
+                    self.prev_t = current_time
                     continue
-                velocities = [0, 0, message.timestamp - self.prev_t]
+                velocities = [0, 0, current_time - self.prev_t]
+                self.prev_t = current_time
 
-            if velocities is not None and distances is not None:
+            if distances is not None:
                 x_mm, y_mm, theta_degrees = self.slam(distances.tolist(), velocities)
                 pose_message = PoseMessage(time.time(), pose_counter, x_mm, y_mm, theta_degrees)
-                self.logger.info(pose_message)
+                self.log_to_buffer(time.time(), pose_message)
                 await self.broadcast(pose_message)
                 pose_counter += 1
 
