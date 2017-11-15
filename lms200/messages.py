@@ -33,7 +33,11 @@ class LmsScan(Message):
 class OdometryMessage(Message):
     message_regex = r"OdometryMessage\(t=([\d.]*)), n=(\d*), xy=([\d.]*)), th=([\d.]*)), dt=([\d.]*))\)"
 
+<<<<<<< HEAD
     def __init__(self, timestamp=None, n=None, delta_xy_mm=0.0, delta_theta_degrees=0.0, delta_t=0.0):
+=======
+    def __init__(self, timestamp=None, n=0, delta_xy_mm=0.0, delta_theta_degrees=0.0, delta_t=0.0):
+>>>>>>> fce8987e10dea6ad2b805fdbf6817dae31fd61a9
         self.delta_xy_mm = delta_xy_mm
         self.delta_theta_degrees = delta_theta_degrees
         self.delta_t = delta_t

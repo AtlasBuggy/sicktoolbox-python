@@ -42,8 +42,6 @@ class Slam(Node):
         self.laser = None
         self.algorithm = None
 
-        self.trajectory_arrow = None
-
         self.lms_tag = "lms"
         self.lms_queue = None
         self.lms200 = None
