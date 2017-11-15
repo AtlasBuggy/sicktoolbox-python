@@ -1,3 +1,4 @@
+import os
 import asyncio
 
 from atlasbuggy.log.playback import PlaybackNode
@@ -6,7 +7,8 @@ from .messages import LmsScan
 
 
 class LmsPlayback(PlaybackNode):
-    def __init__(self, file_name, directory=None, enabled=True, log_level=None):
+    def __init__(self, file_name, directory=None, enabled=True):
+        directory = os.path.join(directory, "LMS200")
         super(LmsPlayback, self).__init__(file_name, directory=directory, enabled=enabled)
 
         self.session_baud = None
@@ -49,5 +51,5 @@ class LmsPlayback(PlaybackNode):
             if lms_message is not None:
                 await self.broadcast(lms_message)
             else:
-                self.logger.info("message failed to parse: %s" % message)
+                self.logger.warning("message failed to parse: %s" % message)
         await asyncio.sleep(0.0)

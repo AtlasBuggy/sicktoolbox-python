@@ -4,7 +4,7 @@ from atlasbuggy import Message
 
 
 class LmsScan(Message):
-    message_regex = r"LmsScan\(t=([\d.]*), n=(\d*), avg=([\d.]*)hz, scan=(.+)\)"
+    message_regex = r"LmsScan\(t=([\d.]*), n=(\d*), avg=([\d.]*), scan=\((.+)\)\)"
 
     def __init__(self, timestamp, n, avg_update_hz, scan):
         self.avg_update_hz = avg_update_hz
@@ -33,7 +33,7 @@ class LmsScan(Message):
 class OdometryMessage(Message):
     message_regex = r"OdometryMessage\(t=([\d.]*)), n=(\d*), xy=([\d.]*)), th=([\d.]*)), dt=([\d.]*))\)"
 
-    def __init__(self, timestamp, n, delta_xy_mm, delta_theta_degrees, delta_t):
+    def __init__(self, timestamp=None, n=None, delta_xy_mm=0.0, delta_theta_degrees=0.0, delta_t=0.0):
         self.delta_xy_mm = delta_xy_mm
         self.delta_theta_degrees = delta_theta_degrees
         self.delta_t = delta_t

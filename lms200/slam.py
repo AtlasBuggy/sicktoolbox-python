@@ -20,8 +20,7 @@ class Slam(Node):
     slam algorithms that is used.
     """
 
-    def __init__(self, map_size_pixels, map_size_meters, enabled=True, log_level=None, write_image=False,
-                 plot_slam=True, perform_slam=True):
+    def __init__(self, map_size_pixels, map_size_meters, enabled=True, log_level=None, write_image=False):
         super(Slam, self).__init__(enabled, log_level)
 
         self.angles = None
@@ -42,7 +41,6 @@ class Slam(Node):
 
         self.laser = None
         self.algorithm = None
-        self.enable_slam = perform_slam
 
         self.trajectory_arrow = None
 
@@ -87,47 +85,45 @@ class Slam(Node):
             self.scan_size, self.scan_rate_hz,
             self.detection_angle_degrees, self.distance_no_detection_mm
         )
-        # if self.is_subscribed(self.odometry_tag):
-        #     self.algorithm = Deterministic_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
-        # else:
-        self.algorithm = RMHC_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
+        if self.is_subscribed(self.odometry_tag):
+            self.algorithm = Deterministic_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
+        else:
+            self.algorithm = RMHC_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
         self.logger.info("SLAM initialized! %s" % self.laser)
 
     async def loop(self):
         pose_counter = 0
+        distances = None
+        velocities = None
+
         while True:
+            # print(self.lms_queue.empty(), self.odometry_queue.empty())
             if not self.lms_queue.empty():
                 self.initialize()
                 while not self.lms_queue.empty():
                     message = await self.lms_queue.get()
-                    # self.logger.info("received scan message: %s" % message)
                     distances = self.make_distances(message.scan)
 
-                    # point_cloud = self.make_point_cloud(distances)
+            if self.is_subscribed(self.odometry_tag):
+                while not self.odometry_queue.empty():
+                    odometry_message = await self.odometry_queue.get()
+                    velocities = [odometry_message.delta_xy_mm, odometry_message.delta_theta_degrees,
+                                      odometry_message.delta_t]
 
-                    if self.enable_slam:
-                        if self.is_subscribed(self.odometry_tag):
-                            if not self.odometry_queue.empty():
-                                odometry_message = await self.odometry_queue.get()
-                                velocities = [odometry_message.delta_xy_mm, odometry_message.delta_theta_degrees,
-                                              odometry_message.delta_t]
-                            else:
-                                velocities = None
-
-                        else:
-                            if self.prev_t is None:
-                                self.prev_t = message.timestamp
-                                continue
-                            velocities = [0, 0, message.timestamp - self.prev_t]
-
-                        if velocities is not None:
-                            x_mm, y_mm, theta_degrees = self.slam(distances.tolist(), velocities)
-                            pose_message = PoseMessage(time.time(), pose_counter, x_mm, y_mm, theta_degrees)
-                            self.logger.info(pose_message)
-                            await self.broadcast(pose_message)
-                            pose_counter += 1
             else:
-                await asyncio.sleep(0.01)
+                if self.prev_t is None:
+                    self.prev_t = message.timestamp
+                    continue
+                velocities = [0, 0, message.timestamp - self.prev_t]
+
+            if velocities is not None and distances is not None:
+                x_mm, y_mm, theta_degrees = self.slam(distances.tolist(), velocities)
+                pose_message = PoseMessage(time.time(), pose_counter, x_mm, y_mm, theta_degrees)
+                self.logger.info(pose_message)
+                await self.broadcast(pose_message)
+                pose_counter += 1
+
+            await asyncio.sleep(0.01)
 
     def make_angles(self):
         """Create angles list in the correct format and units (radians)"""
@@ -194,9 +190,9 @@ class Slam(Node):
 
     async def teardown(self):
         if self.write_image:
-            todays_folder = self.directory.split(os.sep)[1:]
+            todays_folder = self.log_directory.split(os.sep)[1:]
             directory = os.path.join("maps", *todays_folder)
-            file_name = self.file_name + " map"
+            file_name = self.log_file_name + " map"
             if not os.path.isdir(directory):
                 os.makedirs(directory)
 
