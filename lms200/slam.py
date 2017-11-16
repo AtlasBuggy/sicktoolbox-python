@@ -20,7 +20,8 @@ class Slam(Node):
     slam algorithms that is used.
     """
 
-    def __init__(self, map_size_pixels, map_size_meters, enabled=True, log_level=None, write_image=False):
+    def __init__(self, map_size_pixels, map_size_meters, enabled=True, log_level=None, write_image=False,
+                 produce_images=False, force_rmhc_slam=False):
         super(Slam, self).__init__(enabled, log_level)
 
         self.angles = None
@@ -28,6 +29,7 @@ class Slam(Node):
 
         self.scan_size = None
         self.scan_rate_hz = None
+        self.fps = None
         self.detection_angle_degrees = None
         self.distance_no_detection_mm = None
         self.max_distance_mm = None
@@ -55,10 +57,14 @@ class Slam(Node):
         self.odometry_sub = self.define_subscription(self.odometry_tag, is_required=False, message_type=OdometryMessage)
 
         self.prev_t = None
-
         self.write_image = write_image
-
         self.initialized = False
+        self.pose_message_counter = 0
+        self.force_rmhc_slam = force_rmhc_slam
+
+        self.produce_images = produce_images
+        self.slam_image_service = "slam_image"
+        self.define_service(self.slam_image_service)
 
     def take(self):
         self.lms200 = self.lms200_sub.get_producer()
@@ -75,6 +81,7 @@ class Slam(Node):
 
         self.scan_size = len(self.angles)
         self.scan_rate_hz = self.lms200.update_rate_hz
+        self.fps = self.lms200.update_rate_hz
         self.detection_angle_degrees = self.lms200.scan_angle
         self.distance_no_detection_mm = 1.0
         self.max_distance_mm = self.lms200.max_distance * 1000
@@ -83,55 +90,70 @@ class Slam(Node):
             self.scan_size, self.scan_rate_hz,
             self.detection_angle_degrees, self.distance_no_detection_mm
         )
-        # if self.is_subscribed(self.odometry_tag):
-        #     self.algorithm = Deterministic_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
-        #     self.logger.info("Using deterministic SLAM. Odometry provided.")
-        # else:
-        self.algorithm = RMHC_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
-            # self.logger.warning("Using RMHC SLAM!! Odometry not provided.")
+        if self.is_subscribed(self.odometry_tag) and not self.force_rmhc_slam:
+            self.algorithm = Deterministic_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
+            self.logger.info("Using deterministic SLAM. Odometry provided.")
+        else:
+            self.algorithm = RMHC_SLAM(self.laser, self.map_size_pixels, self.map_size_meters)
+            self.logger.warning("Using RMHC SLAM!! Odometry not provided.")
 
         self.logger.info("SLAM initialized! %s" % self.laser)
 
     async def loop(self):
-        pose_counter = 0
-        distances = None
-        velocities = [0, 0, 0]
-        current_time = 0
+        deltas = [0, 0, 0]
 
         while True:
             # print(self.lms_queue.empty(), self.odometry_queue.empty())
             if not self.lms_queue.empty():
                 self.initialize()
+                scan_count = 0
                 while not self.lms_queue.empty():
                     scan_message = await self.lms_queue.get()
                     distances = self.make_distances(scan_message.scan)
 
                     current_time = scan_message.timestamp
-                self.log_to_buffer(time.time(), scan_message)
+                    scan_count += 1
+
+                    if not self.is_subscribed(self.odometry_tag):
+                        if self.prev_t is None:
+                            self.prev_t = current_time
+                        deltas = [0, 0, current_time - self.prev_t]
+                        self.prev_t = current_time
+
+                    print(deltas)
+                    await self.update_slam(distances, deltas)
+                self.log_to_buffer(time.time(), "received %s scans" % scan_count)
 
             if self.is_subscribed(self.odometry_tag):
                 if not self.odometry_queue.empty():
+                    deltas = [0, 0, 0]
+                    velocities_count = 0
                     while not self.odometry_queue.empty():
                         odometry_message = await self.odometry_queue.get()
-                        velocities = [odometry_message.delta_xy_mm, odometry_message.delta_theta_degrees,
-                                          odometry_message.delta_t]
-                    self.log_to_buffer(time.time(), odometry_message)
+                        deltas[0] += odometry_message.delta_xy_mm
+                        deltas[1] += odometry_message.delta_theta_degrees
+                        deltas[2] += odometry_message.delta_t
 
-            else:
-                if self.prev_t is None:
-                    self.prev_t = current_time
-                    continue
-                velocities = [0, 0, current_time - self.prev_t]
-                self.prev_t = current_time
+                        velocities_count += 1
+                        # await self.update_slam(distances, deltas)
 
-            if distances is not None:
-                x_mm, y_mm, theta_degrees = self.slam(distances.tolist(), velocities)
-                pose_message = PoseMessage(time.time(), pose_counter, x_mm, y_mm, theta_degrees)
-                self.log_to_buffer(time.time(), pose_message)
-                await self.broadcast(pose_message)
-                pose_counter += 1
+                    self.log_to_buffer(time.time(), "deltas: %s. received %s" % (deltas, velocities_count))
+
+            if self.produce_images:
+                map_img = np.reshape(np.frombuffer(self.mapbytes, dtype=np.uint8),
+                                     (self.map_size_pixels, self.map_size_pixels))
+
+                await self.broadcast(map_img, self.slam_image_service)
 
             await asyncio.sleep(0.01)
+
+    async def update_slam(self, distances, deltas):
+        if distances is not None:
+            x_mm, y_mm, theta_degrees = self.slam(distances.tolist(), deltas)
+            pose_message = PoseMessage(time.time(), self.pose_message_counter, x_mm, y_mm, theta_degrees)
+            self.log_to_buffer(time.time(), pose_message)
+            await self.broadcast(pose_message)
+            self.pose_message_counter += 1
 
     def make_angles(self):
         """Create angles list in the correct format and units (radians)"""
@@ -165,9 +187,6 @@ class Slam(Node):
         self.trajectory.append((x_mm, y_mm))
 
         self.algorithm.getmap(self.mapbytes)
-
-        # map_img = np.reshape(np.frombuffer(self.mapbytes, dtype=np.uint8),
-        #                      (self.map_size_pixels, self.map_size_pixels))
 
         return x_mm, y_mm, theta_degrees
 
